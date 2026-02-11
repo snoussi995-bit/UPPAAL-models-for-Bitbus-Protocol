@@ -1,0 +1,14 @@
+# Bitbus UPPAAL Model (Thesis)
+
+This repository contains the UPPAAL timed-automata models, scenarios, and verified properties used in my thesis.
+
+## Content
+- `model/`: UPPAAL XML models (MASTER/SLAVE + scenarios)
+- `properties/`: UPPAAL queries / properties
+
+
+## Tool
+Tested with UPPAAL version: 5.0.0
+
+## Thesis version
+This repository corresponds to the thesis manuscript version: v1.0-thesis
