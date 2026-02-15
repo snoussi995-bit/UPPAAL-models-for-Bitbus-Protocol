@@ -1,0 +1,2032 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE nta PUBLIC '-//Uppaal Team//DTD Flat System 1.6//EN' 'http://www.it.uu.se/research/group/darts/uppaal/flat-1_6.dtd'>
+<nta>
+	<declaration>// Les channels utilisées dans le modèle
+
+broadcast chan FRAME_DISC; // Message envoyé par le Maitre pour une 1ére demande de communication.  
+chan FRAME_UA; // Acquittement envoyé par l'esclave suite à une demande réussite de connexion (DISC ou SNRM) de la part de l'esclave.
+chan FRAME_SNRM; // la demande de connexion suite à un acquittement UA par l'esclave validant la reception de la DISC! 
+
+broadcast chan FRAME_FRMR; //(doit être en boradcast pour la recevoir dans les deux automates défaut et Maitre; // Il s'agit d'un message de supervision montrant que l'emetteur de ce message a reçu une trame défaillante.
+
+broadcast chan FRAME_LINK_REQUEST; // Il s'agit d'un message d'information de type BITBUS contenant la trame de demande de liage (M-&gt;S).
+broadcast chan FRAME_LINK_RESPONSE; // Il s'agit d'un message d'information de type BITBUS contenant la trame de réponse de liage(S-&gt;M). 
+
+broadcast chan FRAME_UNLINK_REQUEST; // Il s'agit d'un message d'information de type BITBUS contenant la trame de demande de déliage (M-&gt;S).
+broadcast chan FRAME_UNLINK_RESPONSE; // Il s'agit d'un message d'information de type BITBUS contenant la trame de réponse de déliage (S-&gt;M). 
+
+broadcast chan FRAME_DATA_RESPONSE_M; // Il s'agit d'un message d'information de type BITBUS contenant de 0 à 1 valeurs alphanumériques (M-&gt;S).
+broadcast chan FRAME_DATA_RESPONSE_S; // Il s'agit d'un message d'information de type BITBUS contenant de 1 à 6 valeurs alphanumériques (S-&gt;M).
+
+broadcast chan FRAME_DATA_REQUEST_M; // C'est la trame de vie émis par le Maitre pour Maintenir la communication indiqué dans les documentation par une trame : "demande de données".
+
+broadcast chan CONNECTION_REQUEST; // il s'agit du message emit par l'automate Master Soft à l'automate Master hard dans le but de établir la connexion SDLC.
+broadcast chan CONNECTION_RESPONSE; // C'est le message de réponse emit par l'automate Master hard au Master Soft dans le but de confirmer la connexion SDLC.
+
+broadcast chan T_OUT_S_EXCEEDED; // C'est le channel montrant un dépassement de l'attente du slave de la requête du Maitre.
+broadcast chan COMMUNICATION_ERROR; // Il s'agit du message remonté par le Maitre indiquant à l'unité SES que la communication avec l'esclave demeure impossible. 
+
+broadcast chan CALL_FOR_SCN; // Ce channel permmet la sychronisation avec les automates scénarios en lui indiquant l'incrémentation de la variable T_count_Pol.
+
+
+// les variables //
+
+bool SLAVE_NO_LINKED = 1; // Cette variable globale (utilisée par MASTER_BITBUS et SCN_EA), nous permet d'indentifier s'il s'agit d'une permière trame bitbus émis par Maitre (SLAVE_NO_LINKED = TRUE : c'est bien une première trame, SLAVE_NO_LINKED = FALSE : Ce n'est pas la première trame)  
+
+bool cs_ref_s = 0; // c'est la valeur indiquant la valeur de checksum référence de l'esclave qui se positionne à la fin de la trame et qui doit être égale à celle calculée lors de la reception du message
+bool cs_frame_s = 0; // c'est la valeur indiquant la valeur de checksum de la trame du Maitre vers l'esclave qui se positionne à la fin de la trame et qui va être comparée par cs_ref_s
+
+bool cs_ref_m = 0; // c'est la valeur indiquant la valeur de checksum référence du Maitre qui se positionne à la fin de la trame et qui doit être égale à celle calculée lors de la reception du message
+bool cs_frame_m = 0; // c'est la valeur indiquant la valeur de checksum de la trame de l'esclave vers le Maitre qui se positionne à la fin de la trame et qui va être comparée par cs_ref_m
+
+bool bit_EA = 0; // C'est le bit qui permet l'identification du type de message SBART21 : (= 0 liage, = 1 déliage)
+
+bool byte_UG_m; // C'est l'octet UG permettant d'identifier la validité de la trame (ug_byte = 0 (trame valide), = 1 (trame invalide).
+bool byte_UG_s; // C'est l'octet UG permettant d'identifier la validité de la trame (ug_byte = 0 (trame valide), = 1 (trame invalide).
+
+const bool valid_ug = 0; // La valeur référence de ug pour le Maitre comme pour l'escalve
+
+const int EPC_interne = 0; // EPC_interne indique que l'epc attendu par l'esclave doit avoir la valeur 0. (gloable car elle sera utilisée par 'automate SCN_EPC_TYPE)
+const int TYPE_interne = 0; // TYPE_interne indique que le type attendu par l'esclave doit avoir la valeur 0. (gloable car elle sera utilisée par 'automate SCN_EPC_TYPE)
+
+// type des messages Bitbus S-&gt;M 
+
+const bool unlink_request = 0; // cette variable représente la demande de l'utilisateur pour un déliage.
+const bool unlink_response = 1; // C'est la valeur qui correspond à la trame de réponse au liage.
+const bool data_request_m = 2; // C'est la valeur qui correspond à la trame de vie émis par le Maitre.
+const bool link_request = 0; // C'est la valeur qui correspond à la trame de demande de liage.
+const bool link_response = 0; // C'est la valeur qui correspond à la trame de réponse au liage.
+
+const int data_response_m = 3; // C'est la valeur qui correspond à la trame d'émission de 0 à 1 alphanum.
+const int data_response_s = 3; // C'est la valeur qui correspond à la trame d'émission de 1 à 6 alphanums.
+const int frmr = 4; // La valeur qui correspond à la trame FRMR reçue de l'esclave.
+
+const int empty = 5; // C'est la valeur qui désigne une absence de communication.
+
+bool invalid_data_s = 0; // Cette variable montre la validité de la trame alphanum reçue par le Maitre.
+bool invalid_data_m = 0; // Cette variable montre la validité de la trame alphanum reçue par l'escalve.
+
+int[0,100] cntr_s; // l'instruction de l'esclave : cntr est le byte du contôle request qui décide si la trame est RR, RNR ou I.
+int[0,100] cntr_m; // l'instruction du Maitre.
+
+int[0,20] count_T_Pol = 1; // C'est un compteur indicateur basé sur le nombre d'émissions du Maitre (T_Pol).
+
+
+// Contraintes de temps // 2 unités de temps du modèle équivaut à 20 ms en temps réel, 1000 unités de temps du modèle équivaut à 10s en temps réel  
+
+
+bool error_frame = 0; // Indique une défaillance au niveau des trames.
+
+const int T_out_sdlc_m = 1000; // Délai autorisé pour recevoir un accusé de réception après l’envoi d’un DISC/demande de liage/déliage
+
+const int SNRM = 93; // Octet identifié pour une demande de connexion matérielle
+const int NRM = 1; // Etat "connecté"
+const int NDM = 0; // Etat "non connecté"
+const int DISC = 53; // Trame DISC envoyée pour vérifier l'existance d'un esclave
+const int UA = 73; // Accusé de réception envoyé par l'esclave
+const int FRMR = 97; // Indique que le message précédent est défectueux
+
+int[0,3] epc = 0; // Variable échangée définissant l'adresse epc
+int[0,3] type = 0; // Variable échangée définissant le type du slave
+
+bool ug_m = 0; // Variable échangée entre SCN_UG_m et MASTER_BITBUS
+bool ug_s = 0; // Variable échangée entre SCN_UG_s et SLAVE_BITBUS
+
+int[0,6] frame_received_m; // Message reçu par le Maitre
+bool first_frame_sdlc = 1; // Indique le début de la phase de synchronisation SDLC
+
+
+//////////////////// Automate de défauts ////////////////////
+
+broadcast chan COMMUNICATION_FAILURE; // Message indiquant que le Maitre n'arrive pas à lier/délier son esclave
+broadcast chan NO_ANSWER_BB; // Message indiquant une absence de réponse après émission de trame alphanumérique
+</declaration>
+	<template>
+		<name>MASTER_SDLC</name>
+		<declaration>// Place local declarations here.
+ clock x; // x : horloge maitre
+bool slave_state_in_m = 0; // Cette variable décrit l'état de l'esclave par rapport au Maitre : slave_state_in_m == NDM (= 0): Esclave Déconnecté || slave_state_in_m ==  NRM (= 1): Esclave Connecté (globale car elle est utilisée par l'automate MASTER_BITBUS et MASTER_SDLC).
+bool ready_slave = 1; // forcer l'emission de la demande de synchronisation matérielle (SNRM !) en cas de reception d'acquittement (UA?) 
+
+</declaration>
+		<location id="id0" x="-1241" y="-952">
+			<name x="-1232" y="-986">SDLC_CONNECTION</name>
+			<committed/>
+		</location>
+		<location id="id1" x="-1130" y="-1190">
+			<name x="-1173" y="-1224">SEND_DISC</name>
+			<committed/>
+		</location>
+		<location id="id2" x="-1241" y="-816">
+			<name x="-1334" y="-799">SEND_SNRM</name>
+			<committed/>
+		</location>
+		<location id="id3" x="-1003" y="-816">
+			<name x="-1105" y="-858">WAIT_FOR_SECOND_RESPONSE</name>
+		</location>
+		<location id="id4" x="-697" y="-1122">
+			<name x="-672" y="-1123">VALIDE_SYNCHRONISATION</name>
+			<committed/>
+		</location>
+		<location id="id5" x="-1513" y="-952">
+			<name x="-1564" y="-927">INIT</name>
+		</location>
+		<location id="id6" x="-892" y="-1190">
+			<name x="-926" y="-1232">WAIT_FOR_FIRST_RESPONSE</name>
+			<label kind="invariant" x="-875" y="-1181">x &lt;= T_out_sdlc_m</label>
+		</location>
+		<init ref="id5"/>
+		<transition id="id7">
+			<source ref="id6"/>
+			<target ref="id1"/>
+			<label kind="guard" x="-875" y="-1139">x == T_out_sdlc_m</label>
+			<nail x="-892" y="-1122"/>
+			<nail x="-1130" y="-1122"/>
+		</transition>
+		<transition id="id8">
+			<source ref="id6"/>
+			<target ref="id5"/>
+			<label kind="synchronisation" x="-1411" y="-1445">FRAME_FRMR?</label>
+			<label kind="assignment" x="-1462" y="-1411">slave_state_in_m := NDM,
+x := 0</label>
+			<nail x="-1215" y="-1419"/>
+			<nail x="-1513" y="-1419"/>
+			<nail x="-1513" y="-1045"/>
+		</transition>
+		<transition id="id9">
+			<source ref="id4"/>
+			<target ref="id5"/>
+			<label kind="synchronisation" x="-1105" y="-1538">CONNECTION_RESPONSE!</label>
+			<label kind="assignment" x="-1046" y="-1513">x := 0</label>
+			<nail x="-697" y="-1513"/>
+			<nail x="-1547" y="-1513"/>
+			<nail x="-1547" y="-1003"/>
+		</transition>
+		<transition id="id10">
+			<source ref="id5"/>
+			<target ref="id0"/>
+			<label kind="synchronisation" x="-1496" y="-977">CONNECTION_REQUEST?</label>
+			<label kind="assignment" x="-1487" y="-943">first_frame_sdlc := 1,
+x := 0</label>
+		</transition>
+		<transition id="id11">
+			<source ref="id6"/>
+			<target ref="id0"/>
+			<label kind="synchronisation" x="-1351" y="-1368">FRAME_UA?</label>
+			<label kind="assignment" x="-1428" y="-1317">first_frame_sdlc := 0,
+x := 0</label>
+			<nail x="-1215" y="-1326"/>
+			<nail x="-1462" y="-1326"/>
+			<nail x="-1462" y="-1079"/>
+		</transition>
+		<transition id="id12">
+			<source ref="id3"/>
+			<target ref="id4"/>
+			<label kind="guard" x="-884" y="-841">ready_slave == 1</label>
+			<label kind="synchronisation" x="-867" y="-867">FRAME_UA?</label>
+			<label kind="assignment" x="-926" y="-807">slave_state_in_m := NRM</label>
+			<nail x="-697" y="-816"/>
+		</transition>
+		<transition id="id13">
+			<source ref="id2"/>
+			<target ref="id3"/>
+			<label kind="synchronisation" x="-1207" y="-841">FRAME_SNRM!</label>
+			<label kind="assignment" x="-1215" y="-807">cntr_m := SNRM</label>
+		</transition>
+		<transition id="id14">
+			<source ref="id1"/>
+			<target ref="id6"/>
+			<label kind="synchronisation" x="-1054" y="-1215">FRAME_DISC!</label>
+			<label kind="assignment" x="-1071" y="-1181">cntr_m := DISC,
+x:= 0</label>
+			<nail x="-960" y="-1190"/>
+		</transition>
+		<transition id="id15">
+			<source ref="id0"/>
+			<target ref="id2"/>
+			<label kind="guard" x="-1428" y="-876">first_frame_sdlc == 0</label>
+		</transition>
+		<transition id="id16">
+			<source ref="id0"/>
+			<target ref="id1"/>
+			<label kind="guard" x="-1445" y="-1147">first_frame_sdlc == 1</label>
+			<label kind="assignment" x="-1453" y="-1122">slave_state_in_m := NDM</label>
+			<nail x="-1241" y="-1190"/>
+		</transition>
+	</template>
+	<template>
+		<name>SLAVE_SDLC</name>
+		<declaration>bool slave_state = 0; // Cette variable décrit l'état interne de l'esclave  : SLAVE_STATE == NDM (= 0): Esclave Déconnecté || SLAVE_STATE ==  NRM (= 1): Esclave Connecté (globale car elle est utilisée par l'automate SLAVE_BITBUS et SLAVE_SDLC).</declaration>
+		<location id="id17" x="-977" y="-153">
+			<name x="-1113" y="-187">WAIT_FOR_DISC</name>
+		</location>
+		<location id="id18" x="-714" y="-306">
+			<name x="-765" y="-348">RECEIVE_SNRM</name>
+			<committed/>
+		</location>
+		<location id="id19" x="-790" y="-59">
+			<name x="-773" y="-93">RECEIVE_DISC</name>
+			<committed/>
+		</location>
+		<location id="id20" x="-433" y="-144">
+			<name x="-424" y="-187">SEND_CONNECTION_RESPONSE</name>
+			<committed/>
+		</location>
+		<location id="id21" x="-697" y="-144">
+			<name x="-688" y="-187">ERROR</name>
+			<committed/>
+		</location>
+		<location id="id22" x="-688" y="8">
+			<name x="-696" y="-25">ACK</name>
+			<committed/>
+		</location>
+		<init ref="id17"/>
+		<transition id="id23">
+			<source ref="id21"/>
+			<target ref="id20"/>
+			<label kind="synchronisation" x="-595" y="-170">FRAME_FRMR!</label>
+			<label kind="assignment" x="-620" y="-144">cntr_s := FRMR,
+slave_state := NDM</label>
+		</transition>
+		<transition id="id24">
+			<source ref="id22"/>
+			<target ref="id20"/>
+			<label kind="synchronisation" x="-561" y="-17">FRAME_UA!</label>
+			<label kind="assignment" x="-578" y="8">cntr_s := UA</label>
+			<nail x="-459" y="8"/>
+		</transition>
+		<transition id="id25">
+			<source ref="id19"/>
+			<target ref="id21"/>
+			<label kind="guard" x="-892" y="-178">slave_state == NRM</label>
+			<nail x="-790" y="-144"/>
+		</transition>
+		<transition id="id26">
+			<source ref="id20"/>
+			<target ref="id17"/>
+			<nail x="-433" y="59"/>
+			<nail x="-977" y="59"/>
+		</transition>
+		<transition id="id27">
+			<source ref="id19"/>
+			<target ref="id22"/>
+			<label kind="guard" x="-918" y="17">slave_state == NDM</label>
+			<nail x="-790" y="8"/>
+		</transition>
+		<transition id="id28">
+			<source ref="id18"/>
+			<target ref="id20"/>
+			<label kind="synchronisation" x="-603" y="-340">FRAME_UA!</label>
+			<label kind="assignment" x="-620" y="-297">cntr_s := UA</label>
+			<nail x="-433" y="-306"/>
+		</transition>
+		<transition id="id29">
+			<source ref="id17"/>
+			<target ref="id19"/>
+			<label kind="synchronisation" x="-918" y="-85">FRAME_DISC?</label>
+			<label kind="assignment" x="-943" y="-51">cntr_m := DISC</label>
+			<nail x="-960" y="-59"/>
+		</transition>
+		<transition id="id30">
+			<source ref="id17"/>
+			<target ref="id18"/>
+			<label kind="synchronisation" x="-892" y="-331">FRAME_SNRM?</label>
+			<label kind="assignment" x="-909" y="-306">cntr_m := SNRM,
+slave_state := NRM</label>
+			<nail x="-977" y="-306"/>
+		</transition>
+	</template>
+	<template>
+		<name x="5" y="5">MASTER_BITBUS</name>
+		<declaration>// Place local declarations here.
+clock x; // x : horloge maitre 
+const int T_Pol = 2; // Temps limite du cycle d'interrogation (20 ms ou 2 ut).
+const int T_out_M = 3; // le time-out du maître, c'est à dire la durée maximale, donnée par le maître à l'esclave, entre une commande envoyée par le maître et la réponse suivante de l'esclave (typiquement T_Out = T_Pol = 20 ms ou 2 ut en UPPAAL).
+
+
+int[0,6] frame_received_m = 0; // La trame reçue par le Maitre.
+int[0,6] frame_sent_m = 0; // La trame enovyée par le Maitre.
+int[0,2] attempt_bb = 0; // cette variable sert à identifier l'absence de réponse bb suite à une requête par le maitre.
+
+
+const int T_reset = 10; // le temps pris pour un reset est : 10 secondes d'près les mesures
+
+int attempt_link = 0 ;// Le nombre de tentatives d'attente après l'envoi d'une trame Bitbus.
+int attempt_unlink = 0 ;// Le nombre de tentatives d'attente après l'envoi d'une trame Bitbus.
+
+bool irrec_err = 0;// c'est la variable qui designe l'erreur qui entraine le retour à la rénitialisation.
+
+bool EPC_frame = 0; // cette variable indique l'adresse EPC dans la trame envoyée par le Maitre.
+bool TYPE_frame = 0; //cette variable indique le type de l'esclave dans la trame envoyée par le Maitre.
+
+
+</declaration>
+		<location id="id31" x="-1105" y="501">
+			<name x="-1334" y="493">SDLC_CONNECTION_REQUEST</name>
+			<committed/>
+		</location>
+		<location id="id32" x="901" y="510">
+			<name x="901" y="442">WAIT_BITBUS_RESP</name>
+			<label kind="invariant" x="875" y="544">x &lt;= T_out_M</label>
+		</location>
+		<location id="id33" x="-153" y="501">
+			<name x="-145" y="509">SEND_PROCESS</name>
+			<committed/>
+		</location>
+		<location id="id34" x="1419" y="510">
+			<name x="1249" y="484">RECEIVE_ALPHANUM_S</name>
+			<committed/>
+		</location>
+		<location id="id35" x="1343" y="688">
+			<name x="1258" y="629">RECEIVE_UNLINK_RESP</name>
+			<committed/>
+		</location>
+		<location id="id36" x="1343" y="850">
+			<name x="1241" y="790">RECEIVE_LINK_RESP</name>
+			<committed/>
+		</location>
+		<location id="id37" x="-697" y="501">
+			<name x="-799" y="450">WAIT_FOR_CONNECTION</name>
+		</location>
+		<location id="id38" x="357" y="501">
+			<name x="280" y="441">PROC_SEND_ALPHANUM_M</name>
+			<committed/>
+		</location>
+		<location id="id39" x="357" y="850">
+			<name x="263" y="816">PROC_SEND_LINK_REQ</name>
+			<committed/>
+		</location>
+		<location id="id40" x="-484" y="501">
+			<name x="-561" y="442">PROCESS_BITBUS</name>
+			<label kind="invariant" x="-467" y="509">x &lt;= T_Pol</label>
+		</location>
+		<location id="id41" x="926" y="850">
+			<name x="884" y="807">WAIT_FOR_LINK_RESP</name>
+			<label kind="invariant" x="943" y="850">x &lt;= T_out_sdlc_m</label>
+		</location>
+		<location id="id42" x="357" y="688">
+			<name x="289" y="646">PROC_SEND_UNLINK_REQ</name>
+			<committed/>
+		</location>
+		<location id="id43" x="909" y="688">
+			<name x="824" y="620">WAIT_UNLINK_RESP</name>
+			<label kind="invariant" x="850" y="714">x &lt;= T_out_sdlc_m</label>
+		</location>
+		<location id="id44" x="1538" y="450">
+			<name x="1453" y="467">VALID_CS_ALPHA_S</name>
+			<committed/>
+		</location>
+		<location id="id45" x="1530" y="552">
+			<name x="1453" y="569">INVALID_CS_ALPHA_S</name>
+			<committed/>
+		</location>
+		<location id="id46" x="1530" y="637">
+			<name x="1445" y="654">VALID_CS_UNLINK_RESP</name>
+			<committed/>
+		</location>
+		<location id="id47" x="1530" y="731">
+			<name x="1470" y="739">INVALID_CS_UNLINK_RESP</name>
+			<committed/>
+		</location>
+		<location id="id48" x="1538" y="799">
+			<name x="1479" y="816">VALID_CS_LINK_RESP</name>
+			<committed/>
+		</location>
+		<location id="id49" x="1538" y="884">
+			<name x="1487" y="901">INVALID_CS_LINK_RESP</name>
+			<committed/>
+		</location>
+		<location id="id50" x="1793" y="629">
+			<name x="1776" y="586">ERROR_IN_M</name>
+			<committed/>
+		</location>
+		<location id="id51" x="731" y="501">
+			<name x="603" y="459">SEND_ALPHANUM_M</name>
+			<committed/>
+		</location>
+		<location id="id52" x="722" y="688">
+			<name x="603" y="646">SEND_UNLINK_REQ</name>
+			<committed/>
+		</location>
+		<location id="id53" x="748" y="850">
+			<name x="663" y="807">SEND_LINK_REQ</name>
+			<committed/>
+		</location>
+		<location id="id54" x="1326" y="450">
+			<name x="1300" y="416">RECEIVE_VALID_FRM</name>
+			<committed/>
+		</location>
+		<location id="id55" x="1309" y="569">
+			<name x="1224" y="535">RECEIVE_INVALID_FRM</name>
+			<committed/>
+		</location>
+		<location id="id56" x="1207" y="510">
+			<name x="1062" y="467">RECEIVE_DATA_FRAME</name>
+		</location>
+		<init ref="id31"/>
+		<transition id="id57">
+			<source ref="id55"/>
+			<target ref="id34"/>
+			<nail x="1402" y="569"/>
+		</transition>
+		<transition id="id58">
+			<source ref="id54"/>
+			<target ref="id34"/>
+			<nail x="1402" y="450"/>
+		</transition>
+		<transition id="id59">
+			<source ref="id56"/>
+			<target ref="id55"/>
+			<label kind="guard" x="1054" y="569">byte_UG_s != valid_ug</label>
+			<label kind="assignment" x="1249" y="578">invalid_data_s := 1</label>
+			<nail x="1224" y="569"/>
+		</transition>
+		<transition id="id60">
+			<source ref="id56"/>
+			<target ref="id54"/>
+			<label kind="guard" x="1113" y="425">byte_UG_s == valid_ug</label>
+			<label kind="assignment" x="1241" y="459">invalid_data_s := 0</label>
+			<nail x="1241" y="450"/>
+		</transition>
+		<transition id="id61">
+			<source ref="id37"/>
+			<target ref="id31"/>
+			<nail x="-697" y="586"/>
+			<nail x="-1020" y="586"/>
+		</transition>
+		<transition id="id62">
+			<source ref="id33"/>
+			<target ref="id39"/>
+			<label kind="guard" x="-102" y="824">bit_EA == 0 &amp;&amp; SLAVE_NO_LINKED == 1</label>
+			<nail x="-272" y="603"/>
+			<nail x="-272" y="850"/>
+		</transition>
+		<transition id="id63">
+			<source ref="id33"/>
+			<target ref="id42"/>
+			<label kind="guard" x="-42" y="663">bit_EA == 1 &amp;&amp; SLAVE_NO_LINKED == 0</label>
+			<nail x="-153" y="688"/>
+		</transition>
+		<transition id="id64">
+			<source ref="id43"/>
+			<target ref="id31"/>
+			<label kind="synchronisation" x="909" y="569">FRAME_FRMR?</label>
+			<label kind="assignment" x="969" y="595">frame_received_m := frmr</label>
+			<nail x="926" y="680"/>
+			<nail x="1054" y="450"/>
+			<nail x="1054" y="51"/>
+			<nail x="-1215" y="68"/>
+			<nail x="-1215" y="433"/>
+		</transition>
+		<transition id="id65">
+			<source ref="id53"/>
+			<target ref="id41"/>
+			<label kind="synchronisation" x="782" y="824">CALL_FOR_SCN!</label>
+		</transition>
+		<transition id="id66">
+			<source ref="id52"/>
+			<target ref="id43"/>
+			<label kind="synchronisation" x="731" y="663">CALL_FOR_SCN!</label>
+		</transition>
+		<transition id="id67">
+			<source ref="id51"/>
+			<target ref="id32"/>
+			<label kind="synchronisation" x="756" y="476">CALL_FOR_SCN!</label>
+			<nail x="850" y="501"/>
+		</transition>
+		<transition id="id68">
+			<source ref="id41"/>
+			<target ref="id31"/>
+			<label kind="synchronisation" x="952" y="969">FRAME_FRMR?</label>
+			<label kind="assignment" x="935" y="1020">frame_received_m := frmr</label>
+			<nail x="833" y="1147"/>
+			<nail x="-1173" y="1147"/>
+			<nail x="-1173" y="612"/>
+		</transition>
+		<transition id="id69">
+			<source ref="id50"/>
+			<target ref="id31"/>
+			<label kind="assignment" x="229" y="1190">frame_received_m := frmr</label>
+			<nail x="1708" y="1181"/>
+			<nail x="-1198" y="1181"/>
+			<nail x="-1190" y="595"/>
+		</transition>
+		<transition id="id70">
+			<source ref="id49"/>
+			<target ref="id50"/>
+			<nail x="1708" y="884"/>
+		</transition>
+		<transition id="id71">
+			<source ref="id47"/>
+			<target ref="id50"/>
+			<nail x="1725" y="731"/>
+		</transition>
+		<transition id="id72">
+			<source ref="id45"/>
+			<target ref="id50"/>
+			<nail x="1717" y="552"/>
+		</transition>
+		<transition id="id73">
+			<source ref="id48"/>
+			<target ref="id40"/>
+			<label kind="assignment" x="1164" y="170">SLAVE_NO_LINKED := 0,
+x := 0</label>
+			<nail x="1683" y="799"/>
+			<nail x="1683" y="170"/>
+			<nail x="-263" y="170"/>
+			<nail x="-263" y="365"/>
+			<nail x="-450" y="476"/>
+		</transition>
+		<transition id="id74">
+			<source ref="id46"/>
+			<target ref="id40"/>
+			<label kind="assignment" x="1453" y="263">SLAVE_NO_LINKED := 1,
+bit_EA := 0,
+x := 0</label>
+			<nail x="1640" y="637"/>
+			<nail x="1640" y="263"/>
+			<nail x="-195" y="263"/>
+			<nail x="-195" y="391"/>
+		</transition>
+		<transition id="id75">
+			<source ref="id44"/>
+			<target ref="id40"/>
+			<label kind="assignment" x="1130" y="348">SLAVE_NO_LINKED := 0,
+x := 0</label>
+			<nail x="1538" y="348"/>
+			<nail x="-170" y="348"/>
+			<nail x="-170" y="425"/>
+		</transition>
+		<transition id="id76">
+			<source ref="id36"/>
+			<target ref="id49"/>
+			<label kind="guard" x="1394" y="850">cs_frame_s != cs_ref_s</label>
+			<nail x="1419" y="884"/>
+		</transition>
+		<transition id="id77">
+			<source ref="id36"/>
+			<target ref="id48"/>
+			<label kind="guard" x="1377" y="765">cs_frame_s == cs_ref_s</label>
+			<nail x="1411" y="799"/>
+		</transition>
+		<transition id="id78">
+			<source ref="id35"/>
+			<target ref="id47"/>
+			<label kind="guard" x="1419" y="697">cs_frame_s != cs_ref_s</label>
+			<nail x="1445" y="731"/>
+		</transition>
+		<transition id="id79">
+			<source ref="id35"/>
+			<target ref="id46"/>
+			<label kind="guard" x="1411" y="603">cs_frame_s == cs_ref_s</label>
+			<nail x="1436" y="637"/>
+		</transition>
+		<transition id="id80">
+			<source ref="id34"/>
+			<target ref="id45"/>
+			<label kind="guard" x="1445" y="518">cs_frame_s != cs_ref_s</label>
+			<nail x="1453" y="552"/>
+		</transition>
+		<transition id="id81">
+			<source ref="id34"/>
+			<target ref="id44"/>
+			<label kind="guard" x="1343" y="391">cs_frame_s == cs_ref_s</label>
+			<nail x="1445" y="450"/>
+		</transition>
+		<transition id="id82">
+			<source ref="id43"/>
+			<target ref="id35"/>
+			<label kind="synchronisation" x="1020" y="646">FRAME_UNLINK_RESPONSE?</label>
+			<label kind="assignment" x="1011" y="697">frame_received_m := unlink_response,
+attempt_unlink := 1</label>
+		</transition>
+		<transition id="id83">
+			<source ref="id43"/>
+			<target ref="id31"/>
+			<label kind="guard" x="42" y="782">x == T_out_sdlc_m &amp;&amp; attempt_unlink == 3</label>
+			<label kind="synchronisation" x="-867" y="782">COMMUNICATION_FAILURE!</label>
+			<label kind="assignment" x="-824" y="816">attempt_unlink := 0,
+x := 0</label>
+			<nail x="620" y="807"/>
+			<nail x="-1105" y="807"/>
+		</transition>
+		<transition id="id84">
+			<source ref="id32"/>
+			<target ref="id40"/>
+			<label kind="guard" x="-25" y="535">x == T_out_M &amp;&amp; attempt_bb &lt; 2</label>
+			<label kind="assignment" x="42" y="561">attempt_bb ++,
+x := 0</label>
+			<nail x="807" y="561"/>
+			<nail x="-484" y="561"/>
+		</transition>
+		<transition id="id85">
+			<source ref="id43"/>
+			<target ref="id40"/>
+			<label kind="guard" x="246" y="595">x == T_out_sdlc_m &amp;&amp; attempt_unlink &lt; 3</label>
+			<label kind="assignment" x="365" y="612">x := 0</label>
+			<nail x="808" y="637"/>
+			<nail x="-492" y="637"/>
+			<nail x="-492" y="552"/>
+		</transition>
+		<transition id="id86">
+			<source ref="id32"/>
+			<target ref="id31"/>
+			<label kind="guard" x="476" y="127">x == T_out_M &amp;&amp; attempt_bb == 2</label>
+			<label kind="synchronisation" x="-501" y="127">NO_ANSWER_BB!</label>
+			<label kind="assignment" x="-544" y="161">frame_received_m := empty,
+x := 0,
+attempt_bb := 0</label>
+			<nail x="833" y="153"/>
+			<nail x="-1147" y="153"/>
+			<nail x="-1147" y="450"/>
+		</transition>
+		<transition id="id87">
+			<source ref="id42"/>
+			<target ref="id52"/>
+			<label kind="synchronisation" x="450" y="663">FRAME_UNLINK_REQUEST!</label>
+			<label kind="assignment" x="433" y="697">frame_sent_m := unlink_request,
+EPC_frame := epc,
+TYPE_frame := type,
+attempt_unlink ++,
+x := 0</label>
+		</transition>
+		<transition id="id88">
+			<source ref="id41"/>
+			<target ref="id31"/>
+			<label kind="guard" x="-391" y="1037">x == T_out_sdlc_m &amp;&amp; attempt_link == 3</label>
+			<label kind="synchronisation" x="-748" y="1037">COMMUNICATION_FAILURE!</label>
+			<label kind="assignment" x="-331" y="1062">SLAVE_NO_LINKED := 1,
+attempt_link := 0,
+x := 0</label>
+			<nail x="731" y="1062"/>
+			<nail x="-1147" y="1062"/>
+			<nail x="-1147" y="603"/>
+		</transition>
+		<transition id="id89">
+			<source ref="id40"/>
+			<target ref="id33"/>
+			<label kind="guard" x="-340" y="476">x == T_Pol</label>
+		</transition>
+		<transition id="id90">
+			<source ref="id39"/>
+			<target ref="id53"/>
+			<label kind="synchronisation" x="450" y="824">FRAME_LINK_REQUEST!</label>
+			<label kind="assignment" x="442" y="858">frame_sent_m := link_request,
+EPC_frame := epc,
+TYPE_frame := type,
+attempt_link ++,
+x := 0</label>
+		</transition>
+		<transition id="id91">
+			<source ref="id38"/>
+			<target ref="id51"/>
+			<label kind="synchronisation" x="450" y="476">FRAME_DATA_RESPONSE_M!</label>
+			<label kind="assignment" x="408" y="501">frame_sent_m := data_response_m,
+byte_UG_m := ug_m,
+x := 0</label>
+		</transition>
+		<transition id="id92">
+			<source ref="id33"/>
+			<target ref="id38"/>
+			<label kind="guard" x="-34" y="476">bit_EA == 0 &amp;&amp; SLAVE_NO_LINKED == 0</label>
+		</transition>
+		<transition id="id93">
+			<source ref="id37"/>
+			<target ref="id40"/>
+			<label kind="synchronisation" x="-680" y="476">CONNECTION_RESPONSE?</label>
+			<label kind="assignment" x="-663" y="510">x := 0</label>
+		</transition>
+		<transition id="id94">
+			<source ref="id41"/>
+			<target ref="id36"/>
+			<label kind="synchronisation" x="1062" y="799">FRAME_LINK_RESPONSE?</label>
+			<label kind="assignment" x="1054" y="875">frame_received_m := link_response,
+attempt_link := 1</label>
+		</transition>
+		<transition id="id95">
+			<source ref="id32"/>
+			<target ref="id56"/>
+			<label kind="synchronisation" x="935" y="484">FRAME_DATA_RESPONSE_S?</label>
+			<label kind="assignment" x="901" y="518">frame_received_m := data_response_s</label>
+		</transition>
+		<transition id="id96">
+			<source ref="id31"/>
+			<target ref="id37"/>
+			<label kind="synchronisation" x="-977" y="476">CONNECTION_REQUEST!</label>
+		</transition>
+		<transition id="id97">
+			<source ref="id41"/>
+			<target ref="id31"/>
+			<label kind="guard" x="-102" y="944">x == T_out_sdlc_m &amp;&amp; attempt_link &lt; 3</label>
+			<label kind="assignment" x="-17" y="969">x := 0</label>
+			<nail x="731" y="969"/>
+			<nail x="-1130" y="969"/>
+			<nail x="-1130" y="595"/>
+		</transition>
+	</template>
+	<template>
+		<name>SLAVE_BITBUS</name>
+		<declaration>// Place local declarations here.
+clock y; // l'horloge qui permet le contrôle du temps d'attente (T_out)  et de réponse (T_rep).
+
+int[0,6] frame_received_s = 0; // La trame reçue par l'esclave.
+int[0,6] frame_sent_s = 0;// // La trame reçue par l'esclave.
+const int T_out_S = 5;
+
+const int T_rep = 0; // La valeur T_rep : : le temps de réponse de l'esclave, c'est-à-dire le temps que l'esclave attend avant d'envoyer une réponse après une réception de trame.
+
+bool slave_state = 0; // Cette variable décrit l'état interne de l'esclave  : SLAVE_STATE == NDM (= 0): Esclave Déconnecté || SLAVE_STATE ==  NRM (= 1): Esclave Connecté et doit être globale.
+
+const int EPC_interne = 0; // EPC_interne indique que l'epc attendu par l'esclave doit avoir la valeur 0
+const int TYPE_interne = 0; // TYPE_interne indique que le type attendu par l'esclave doit avoir la valeur 0 
+
+bool bit_FA = 0; // C'est le bit qui désigne la réponse positif de l'esclave suite à une tentative de liage/déliage ( bit_FA = 1 (réponse positive), bit_FA = 0 (réponse négative)) 
+</declaration>
+		<location id="id98" x="-1054" y="-442">
+			<name x="-1113" y="-484">WAIT</name>
+			<label kind="invariant" x="-1020" y="-433">y &lt;= T_out_S</label>
+		</location>
+		<location id="id99" x="-1054" y="-739">
+			<name x="-1105" y="-773">T_OUT_EXCEEDED_S</name>
+		</location>
+		<location id="id100" x="-1598" y="-442">
+			<name x="-1623" y="-484">Init</name>
+		</location>
+		<location id="id101" x="-161" y="-603">
+			<name x="-238" y="-646">LINK_PROCESS</name>
+			<committed/>
+		</location>
+		<location id="id102" x="399" y="-680">
+			<name x="391" y="-714">SEND_LINK_RESP</name>
+			<label kind="invariant" x="416" y="-680">y &lt;= T_rep</label>
+		</location>
+		<location id="id103" x="399" y="-603">
+			<name x="340" y="-637">VALID_LINK_INVALID_CS</name>
+			<label kind="invariant" x="416" y="-603">y &lt;= T_rep</label>
+		</location>
+		<location id="id104" x="654" y="-382">
+			<name x="663" y="-416">ERROR_IN_S</name>
+			<committed/>
+		</location>
+		<location id="id105" x="-697" y="-603">
+			<name x="-739" y="-654">RECEIVE_LINK_REQ</name>
+			<committed/>
+		</location>
+		<location id="id106" x="-161" y="-518">
+			<name x="-204" y="-552">LINK_REJ</name>
+			<committed/>
+		</location>
+		<location id="id107" x="-705" y="-442">
+			<name x="-790" y="-484">RECEIVE_UNLINK_REQ</name>
+			<committed/>
+		</location>
+		<location id="id108" x="-153" y="-442">
+			<name x="-229" y="-484">UNLINK_PROCESS</name>
+			<committed/>
+		</location>
+		<location id="id109" x="-161" y="-357">
+			<name x="-204" y="-391">UNLINK_REJ</name>
+			<committed/>
+		</location>
+		<location id="id110" x="399" y="-493">
+			<name x="374" y="-535">SEND_UNLINK_RESP</name>
+			<label kind="invariant" x="425" y="-501">y &lt;= T_rep</label>
+		</location>
+		<location id="id111" x="382" y="-442">
+			<name x="272" y="-476">VALID_UNLINK_INVALID_CS</name>
+			<label kind="invariant" x="399" y="-433">y &lt;= T_rep</label>
+		</location>
+		<location id="id112" x="-535" y="-280">
+			<name x="-612" y="-323">RECEIVE_DATA_FRAME</name>
+			<committed/>
+		</location>
+		<location id="id113" x="-161" y="-280">
+			<name x="-238" y="-323">RECEIVE_VALID_FRM</name>
+			<committed/>
+		</location>
+		<location id="id114" x="-246" y="-76">
+			<name x="-289" y="-119">RECEIVE_INVALID_FRM</name>
+			<committed/>
+		</location>
+		<location id="id115" x="374" y="-331">
+			<name x="357" y="-365">SEND_ALPHANUM_S</name>
+			<label kind="invariant" x="391" y="-340">y &lt;= T_rep</label>
+		</location>
+		<location id="id116" x="374" y="-263">
+			<name x="323" y="-306">INVALID_CS_VALID_FRM</name>
+			<label kind="invariant" x="391" y="-255">y &lt;= T_rep</label>
+		</location>
+		<location id="id117" x="365" y="-76">
+			<name x="347" y="-119">SEND_DATA_RESPONSE</name>
+			<label kind="invariant" x="390" y="-85">y &lt;= T_rep</label>
+		</location>
+		<location id="id118" x="365" y="8">
+			<name x="348" y="-42">INVALID_CS_INVALID_FRM</name>
+			<label kind="invariant" x="381" y="16">y &lt;= T_rep</label>
+		</location>
+		<init ref="id100"/>
+		<transition id="id119">
+			<source ref="id103"/>
+			<target ref="id104"/>
+			<label kind="guard" x="535" y="-629">y == T_rep</label>
+			<nail x="603" y="-603"/>
+		</transition>
+		<transition id="id120">
+			<source ref="id111"/>
+			<target ref="id104"/>
+			<label kind="guard" x="518" y="-467">y == T_rep</label>
+			<nail x="620" y="-442"/>
+		</transition>
+		<transition id="id121">
+			<source ref="id116"/>
+			<target ref="id104"/>
+			<label kind="guard" x="510" y="-289">y == T_rep</label>
+			<nail x="612" y="-263"/>
+		</transition>
+		<transition id="id122">
+			<source ref="id118"/>
+			<target ref="id104"/>
+			<label kind="guard" x="425" y="-17">y == T_rep</label>
+			<nail x="578" y="8"/>
+		</transition>
+		<transition id="id123">
+			<source ref="id117"/>
+			<target ref="id98"/>
+			<label kind="guard" x="323" y="-161">y == T_rep</label>
+			<label kind="synchronisation" x="-314" y="-195">FRAME_DATA_RESPONSE_S!</label>
+			<label kind="assignment" x="-42" y="-153">frame_sent_s := data_response_s,
+y:=0</label>
+			<nail x="289" y="-161"/>
+			<nail x="-1020" y="-161"/>
+		</transition>
+		<transition id="id124">
+			<source ref="id115"/>
+			<target ref="id98"/>
+			<label kind="guard" x="323" y="-399">y == T_rep</label>
+			<label kind="synchronisation" x="25" y="-425">FRAME_DATA_RESPONSE_S!</label>
+			<label kind="assignment" x="-17" y="-399">frame_sent_s := data_response_s,
+invalid_data_m := 0,
+y:=0</label>
+			<nail x="306" y="-399"/>
+			<nail x="-1028" y="-399"/>
+		</transition>
+		<transition id="id125">
+			<source ref="id110"/>
+			<target ref="id98"/>
+			<label kind="guard" x="340" y="-561">y == T_rep</label>
+			<label kind="synchronisation" x="42" y="-586">FRAME_UNLINK_RESPONSE!</label>
+			<label kind="assignment" x="0" y="-561">frame_sent_s := unlink_response,
+y := 0</label>
+			<nail x="306" y="-561"/>
+			<nail x="-816" y="-561"/>
+		</transition>
+		<transition id="id126">
+			<source ref="id114"/>
+			<target ref="id118"/>
+			<label kind="guard" x="59" y="-18">cs_frame_m != cs_ref_m</label>
+			<nail x="-60" y="8"/>
+		</transition>
+		<transition id="id127">
+			<source ref="id114"/>
+			<target ref="id117"/>
+			<label kind="guard" x="25" y="-102">cs_frame_m == cs_ref_m</label>
+		</transition>
+		<transition id="id128">
+			<source ref="id113"/>
+			<target ref="id116"/>
+			<label kind="guard" x="110" y="-289">cs_frame_m != cs_ref_m</label>
+			<nail x="0" y="-263"/>
+		</transition>
+		<transition id="id129">
+			<source ref="id113"/>
+			<target ref="id115"/>
+			<label kind="guard" x="153" y="-357">cs_frame_m == cs_ref_m</label>
+			<nail x="102" y="-331"/>
+		</transition>
+		<transition id="id130">
+			<source ref="id112"/>
+			<target ref="id114"/>
+			<label kind="guard" x="-476" y="-102">byte_UG_m != valid_ug</label>
+			<label kind="assignment" x="-501" y="-68">invalid_data_m := 1,
+y := 0</label>
+			<nail x="-535" y="-76"/>
+		</transition>
+		<transition id="id131">
+			<source ref="id112"/>
+			<target ref="id113"/>
+			<label kind="guard" x="-433" y="-314">byte_UG_m == valid_ug</label>
+			<label kind="assignment" x="-408" y="-272">invalid_data_m := 0,
+y := 0</label>
+		</transition>
+		<transition id="id132">
+			<source ref="id98"/>
+			<target ref="id112"/>
+			<label kind="synchronisation" x="-824" y="-306">FRAME_DATA_RESPONSE_M?</label>
+			<label kind="assignment" x="-918" y="-272">frame_received_s := data_response_m</label>
+			<nail x="-986" y="-280"/>
+			<nail x="-739" y="-280"/>
+		</transition>
+		<transition id="id133">
+			<source ref="id108"/>
+			<target ref="id111"/>
+			<label kind="guard" x="25" y="-467">cs_frame_m != cs_ref_m</label>
+			<nail x="50" y="-442"/>
+		</transition>
+		<transition id="id134">
+			<source ref="id108"/>
+			<target ref="id110"/>
+			<label kind="guard" x="34" y="-518">cs_frame_m == cs_ref_m</label>
+			<nail x="0" y="-493"/>
+		</transition>
+		<transition id="id135">
+			<source ref="id109"/>
+			<target ref="id98"/>
+			<nail x="-51" y="-357"/>
+			<nail x="-51" y="-816"/>
+			<nail x="-1394" y="-816"/>
+			<nail x="-1394" y="-493"/>
+		</transition>
+		<transition id="id136">
+			<source ref="id107"/>
+			<target ref="id109"/>
+			<label kind="guard" x="-637" y="-382">epc != EPC_interne || type != TYPE_interne</label>
+			<label kind="assignment" x="-637" y="-357">y := 0</label>
+			<nail x="-705" y="-357"/>
+		</transition>
+		<transition id="id137">
+			<source ref="id107"/>
+			<target ref="id108"/>
+			<label kind="guard" x="-637" y="-467">epc == EPC_interne &amp;&amp; type == TYPE_interne</label>
+			<label kind="assignment" x="-612" y="-442">frame_received_s := unlink_request,
+y := 0</label>
+		</transition>
+		<transition id="id138">
+			<source ref="id106"/>
+			<target ref="id98"/>
+			<nail x="-119" y="-518"/>
+			<nail x="-119" y="-790"/>
+			<nail x="-1360" y="-790"/>
+			<nail x="-1360" y="-527"/>
+		</transition>
+		<transition id="id139">
+			<source ref="id98"/>
+			<target ref="id107"/>
+			<label kind="synchronisation" x="-969" y="-467">FRAME_UNLINK_REQUEST?</label>
+			<nail x="-1037" y="-442"/>
+		</transition>
+		<transition id="id140">
+			<source ref="id105"/>
+			<target ref="id106"/>
+			<label kind="guard" x="-637" y="-544">epc != EPC_interne || type != TYPE_interne</label>
+			<label kind="assignment" x="-620" y="-518">y := 0</label>
+			<nail x="-697" y="-518"/>
+		</transition>
+		<transition id="id141">
+			<source ref="id105"/>
+			<target ref="id101"/>
+			<label kind="guard" x="-637" y="-629">epc == EPC_interne &amp;&amp; type == TYPE_interne</label>
+		</transition>
+		<transition id="id142">
+			<source ref="id104"/>
+			<target ref="id100"/>
+			<label kind="synchronisation" x="-603" y="102">FRAME_FRMR!</label>
+			<label kind="assignment" x="-620" y="127">slave_state := NDM,
+y := 0</label>
+			<nail x="603" y="127"/>
+			<nail x="-1683" y="127"/>
+			<nail x="-1683" y="-442"/>
+		</transition>
+		<transition id="id143">
+			<source ref="id102"/>
+			<target ref="id98"/>
+			<label kind="guard" x="280" y="-756">y == T_rep</label>
+			<label kind="synchronisation" x="0" y="-756">FRAME_LINK_RESPONSE!</label>
+			<label kind="assignment" x="-42" y="-731">frame_sent_s := link_response,
+bit_FA := 1,
+y := 0</label>
+			<nail x="289" y="-731"/>
+			<nail x="-850" y="-731"/>
+		</transition>
+		<transition id="id144">
+			<source ref="id101"/>
+			<target ref="id103"/>
+			<label kind="guard" x="93" y="-629">cs_frame_m != cs_ref_m</label>
+		</transition>
+		<transition id="id145">
+			<source ref="id101"/>
+			<target ref="id102"/>
+			<label kind="guard" x="136" y="-705">cs_frame_m == cs_ref_m</label>
+			<nail x="85" y="-680"/>
+		</transition>
+		<transition id="id146">
+			<source ref="id98"/>
+			<target ref="id99"/>
+			<label kind="guard" x="-1045" y="-697">y == T_out_S</label>
+		</transition>
+		<transition id="id147">
+			<source ref="id100"/>
+			<target ref="id98"/>
+			<label kind="synchronisation" x="-1555" y="-476">CONNECTION_RESPONSE?</label>
+			<label kind="assignment" x="-1538" y="-442">slave_state := NRM,
+y := 0</label>
+		</transition>
+		<transition id="id148">
+			<source ref="id99"/>
+			<target ref="id98"/>
+			<label kind="synchronisation" x="-1309" y="-654">T_OUT_S_EXCEEDED!</label>
+			<label kind="assignment" x="-1249" y="-629">y := 0</label>
+			<nail x="-1207" y="-739"/>
+		</transition>
+		<transition id="id149">
+			<source ref="id98"/>
+			<target ref="id105"/>
+			<label kind="synchronisation" x="-884" y="-637">FRAME_LINK_REQUEST?</label>
+			<label kind="assignment" x="-629" y="-603">frame_received_s := link_request,
+y := 0</label>
+			<nail x="-867" y="-603"/>
+		</transition>
+	</template>
+	<template>
+		<name>FAULT_MONITOR</name>
+		<location id="id150" x="-1402" y="-1691">
+			<name x="-1453" y="-1674">TIMEOUT_EXCEEDED</name>
+			<committed/>
+		</location>
+		<location id="id151" x="-2099" y="-1436">
+			<name x="-2074" y="-1436">WAIT</name>
+		</location>
+		<location id="id152" x="-1394" y="-1530">
+			<name x="-1513" y="-1513">ERROR_T_OUT_S_EXCEEDED</name>
+		</location>
+		<location id="id153" x="-1394" y="-1581">
+			<name x="-1445" y="-1564">ERROR_LINK</name>
+			<committed/>
+		</location>
+		<location id="id154" x="-1402" y="-1640">
+			<name x="-1462" y="-1623">NO_ANSWER_BITBUS</name>
+			<committed/>
+		</location>
+		<init ref="id151"/>
+		<transition id="id155">
+			<source ref="id150"/>
+			<target ref="id151"/>
+			<nail x="-926" y="-1691"/>
+			<nail x="-926" y="-1241"/>
+			<nail x="-2210" y="-1241"/>
+			<nail x="-2210" y="-1385"/>
+		</transition>
+		<transition id="id156">
+			<source ref="id151"/>
+			<target ref="id150"/>
+			<label kind="synchronisation" x="-1886" y="-1725">COMMUNICATION_ERROR?</label>
+			<nail x="-2227" y="-1581"/>
+			<nail x="-2227" y="-1691"/>
+		</transition>
+		<transition id="id157">
+			<source ref="id154"/>
+			<target ref="id151"/>
+			<nail x="-960" y="-1640"/>
+			<nail x="-960" y="-1283"/>
+			<nail x="-2176" y="-1283"/>
+			<nail x="-2176" y="-1377"/>
+		</transition>
+		<transition id="id158">
+			<source ref="id151"/>
+			<target ref="id154"/>
+			<label kind="synchronisation" x="-1835" y="-1665">NO_ANSWER_BB?</label>
+			<nail x="-2193" y="-1581"/>
+			<nail x="-2193" y="-1640"/>
+			<nail x="-1640" y="-1640"/>
+		</transition>
+		<transition id="id159">
+			<source ref="id153"/>
+			<target ref="id151"/>
+			<nail x="-1003" y="-1581"/>
+			<nail x="-1003" y="-1317"/>
+			<nail x="-2099" y="-1317"/>
+		</transition>
+		<transition id="id160">
+			<source ref="id151"/>
+			<target ref="id153"/>
+			<label kind="synchronisation" x="-1870" y="-1606">COMMUNICATION_FAILURE?</label>
+			<nail x="-2150" y="-1581"/>
+		</transition>
+		<transition id="id161">
+			<source ref="id152"/>
+			<target ref="id151"/>
+			<nail x="-1037" y="-1530"/>
+			<nail x="-1037" y="-1360"/>
+			<nail x="-2074" y="-1360"/>
+		</transition>
+		<transition id="id162">
+			<source ref="id151"/>
+			<target ref="id152"/>
+			<label kind="synchronisation" x="-1844" y="-1555">T_OUT_S_EXCEEDED?</label>
+			<nail x="-2082" y="-1530"/>
+		</transition>
+	</template>
+	<template>
+		<name>SCN_CS_S</name>
+		<declaration>
+bool stop1 = 0; // variable permettant d'arrêter l'incrémentation du scénario SCN_CS_S;
+const int var_cs_s = 10; // La variable permettant de forcer un scénario dégradé
+bool cs_false_s = 1; // La valeur erronnée du CS (cs_false_s != cs_ref_s)
+</declaration>
+		<location id="id163" x="-714" y="-527">
+			<name x="-705" y="-561">Init</name>
+		</location>
+		<location id="id164" x="-306" y="-527">
+			<name x="-331" y="-569">COUNT_FOR_CS_S</name>
+			<committed/>
+		</location>
+		<init ref="id163"/>
+		<transition id="id165">
+			<source ref="id164"/>
+			<target ref="id163"/>
+			<label kind="guard" x="-399" y="-612">count_T_Pol &lt; var_cs_s</label>
+			<label kind="assignment" x="-680" y="-637">cs_frame_s := cs_ref_s</label>
+			<nail x="-450" y="-612"/>
+			<nail x="-714" y="-612"/>
+		</transition>
+		<transition id="id166">
+			<source ref="id164"/>
+			<target ref="id163"/>
+			<label kind="guard" x="-391" y="-476">count_T_Pol == var_cs_s</label>
+			<label kind="assignment" x="-646" y="-433">cs_frame_s := cs_false_s,
+count_T_Pol := 0,
+stop1 := 1</label>
+			<nail x="-450" y="-442"/>
+			<nail x="-714" y="-442"/>
+		</transition>
+		<transition id="id167">
+			<source ref="id163"/>
+			<target ref="id164"/>
+			<label kind="guard" x="-586" y="-552">stop1 == 0</label>
+			<label kind="synchronisation" x="-603" y="-578">CALL_FOR_SCN?</label>
+			<label kind="assignment" x="-603" y="-518">count_T_Pol ++</label>
+			<nail x="-697" y="-527"/>
+		</transition>
+	</template>
+	<template>
+		<name>SCN_CS_M</name>
+		<declaration>bool stop2 = 0; // variable permettant d'arrêter l'incrémentation du scénario SCN_CS_M; 
+const int var_cs_m = 5; // La variable permettant de forcer un scénario dégradé
+bool cs_false_m = 1; // La valeur erronnée du CS (cs_false_m != cs_ref_m)</declaration>
+		<location id="id168" x="-272" y="-246">
+			<name x="-314" y="-289">Init</name>
+		</location>
+		<location id="id169" x="153" y="-246">
+			<name x="153" y="-280">COUNT_FOR_CS_M</name>
+		</location>
+		<init ref="id168"/>
+		<transition id="id170">
+			<source ref="id169"/>
+			<target ref="id168"/>
+			<label kind="guard" x="51" y="-323">count_T_Pol &lt; var_cs_m</label>
+			<label kind="assignment" x="-212" y="-357">cs_frame_m := cs_ref_m</label>
+			<nail x="-8" y="-331"/>
+			<nail x="-272" y="-331"/>
+		</transition>
+		<transition id="id171">
+			<source ref="id169"/>
+			<target ref="id168"/>
+			<label kind="guard" x="68" y="-195">count_T_Pol == var_cs_m</label>
+			<label kind="assignment" x="-238" y="-153">cs_frame_m := cs_false_m,
+count_T_Pol := 0,
+stop2 := 1</label>
+			<nail x="-8" y="-161"/>
+			<nail x="-272" y="-161"/>
+		</transition>
+		<transition id="id172">
+			<source ref="id168"/>
+			<target ref="id169"/>
+			<label kind="guard" x="-144" y="-272">stop2 == 0</label>
+			<label kind="synchronisation" x="-153" y="-289">CALL_FOR_SCN?</label>
+			<label kind="assignment" x="-144" y="-238">count_T_Pol ++</label>
+			<nail x="-255" y="-246"/>
+		</transition>
+	</template>
+	<template>
+		<name>SCN_EPC_TYPE</name>
+		<declaration>
+bool stop3 = 0 ; // variable permettant d'arrêter l'incrémentation du scénario SCN_EPC_TYPE;
+const int var_epc_type = 6; // La variable permettant de forcer un scénario dégrad
+
+ 
+
+</declaration>
+		<location id="id173" x="59" y="-314">
+			<name x="68" y="-348">COUNT_FOR_EPC_TYPE</name>
+			<committed/>
+		</location>
+		<location id="id174" x="-349" y="-314">
+			<name x="-391" y="-374">Init</name>
+		</location>
+		<init ref="id174"/>
+		<transition id="id175">
+			<source ref="id173"/>
+			<target ref="id174"/>
+			<label kind="guard" x="-289" y="-467">count_T_Pol == var_epc_type</label>
+			<label kind="assignment" x="-178" y="-433">epc := 1,
+type := 1,
+count_T_Pol := 0,
+stop3 := 1</label>
+			<nail x="-59" y="-433"/>
+			<nail x="-348" y="-433"/>
+		</transition>
+		<transition id="id176">
+			<source ref="id173"/>
+			<target ref="id174"/>
+			<label kind="guard" x="-289" y="-255">count_T_Pol &gt; var_epc_type</label>
+			<label kind="assignment" x="-272" y="-221">epc := EPC_interne,
+type := TYPE_interne,
+stop3 := 1</label>
+			<nail x="-59" y="-229"/>
+			<nail x="-349" y="-229"/>
+		</transition>
+		<transition id="id177">
+			<source ref="id174"/>
+			<target ref="id173"/>
+			<label kind="guard" x="-272" y="-340">stop3 == 0</label>
+			<label kind="synchronisation" x="-306" y="-357">CALL_FOR_SCN?</label>
+			<label kind="assignment" x="-289" y="-314">count_T_Pol ++</label>
+			<nail x="-332" y="-314"/>
+		</transition>
+	</template>
+	<template>
+		<name>SCN_UG_M</name>
+		<declaration>bool stop4 = 0; // variable permettant d'arrêter l'incrémentation du scénario SCN_UG;
+const int var_ug = 4; // La variable permettant de forcer un scénario dégradé.
+const int valid_ug_m = 0;// Cette valeur présente la valeur valid du byte_ug pour le Maitre.
+const int invalid_ug_m = 1;// Cette valeur présente la valeur invalide du byte_ug pour le maitre.</declaration>
+		<location id="id178" x="-17" y="-170">
+			<name x="-51" y="-212">COUNT_FOR_UG</name>
+			<committed/>
+		</location>
+		<location id="id179" x="-476" y="-170">
+			<name x="-518" y="-204">Init</name>
+		</location>
+		<init ref="id179"/>
+		<transition id="id180">
+			<source ref="id178"/>
+			<target ref="id179"/>
+			<label kind="guard" x="-153" y="-255">count_T_Pol &lt; var_ug</label>
+			<label kind="assignment" x="-391" y="-289">ug_m := valid_ug_m</label>
+			<nail x="-212" y="-255"/>
+			<nail x="-476" y="-255"/>
+		</transition>
+		<transition id="id181">
+			<source ref="id178"/>
+			<target ref="id179"/>
+			<label kind="guard" x="-136" y="-119">count_T_Pol == var_ug</label>
+			<label kind="assignment" x="-374" y="-76">ug_m := invalid_ug_m,
+count_T_Pol := 0,
+stop4 := 1</label>
+			<nail x="-212" y="-85"/>
+			<nail x="-476" y="-85"/>
+		</transition>
+		<transition id="id182">
+			<source ref="id179"/>
+			<target ref="id178"/>
+			<label kind="guard" x="-340" y="-195">stop4 == 0</label>
+			<label kind="synchronisation" x="-357" y="-221">CALL_FOR_SCN?</label>
+			<label kind="assignment" x="-348" y="-161">count_T_Pol ++</label>
+			<nail x="-459" y="-170"/>
+		</transition>
+	</template>
+	<template>
+		<name>SCN_UG_S</name>
+		<declaration>bool stop44 := 0; // variable permettant d'arrêter l'incrémentation du scénario SCN_UG;
+const int var_ug_s = 4; // La variable permettant de forcer un scénario dégradé
+const int valid_ug_s = 0;// Cette valeur présente la valeur valid du byte_ug pour l'esclave
+const int invalid_ug_s = 1;// Cette valeur présente la valeur invalide du byte_ug pour l'esclave
+</declaration>
+		<location id="id183" x="-272" y="-161">
+			<name x="-263" y="-204">Init</name>
+		</location>
+		<location id="id184" x="93" y="-161">
+			<name x="83" y="-195">COUNT_FOR_UG_S</name>
+		</location>
+		<init ref="id183"/>
+		<transition id="id185">
+			<source ref="id184"/>
+			<target ref="id183"/>
+			<label kind="guard" x="85" y="-93">count_T_Pol == var_ug_s</label>
+			<label kind="assignment" x="-187" y="-17">ug_s := invalid_ug_s,
+count_T_Pol := 0,
+stop44 := 1</label>
+			<nail x="34" y="-34"/>
+			<nail x="-272" y="-34"/>
+		</transition>
+		<transition id="id186">
+			<source ref="id184"/>
+			<target ref="id183"/>
+			<label kind="guard" x="85" y="-255">count_T_Pol &lt; var_ug_s</label>
+			<label kind="assignment" x="-187" y="-331">ug_s := valid_ug_s</label>
+			<nail x="25" y="-297"/>
+			<nail x="-272" y="-297"/>
+		</transition>
+		<transition id="id187">
+			<source ref="id183"/>
+			<target ref="id184"/>
+			<label kind="guard" x="-153" y="-187">stop44 == 0</label>
+			<label kind="synchronisation" x="-161" y="-212">CALL_FOR_SCN?</label>
+			<label kind="assignment" x="-161" y="-161">count_T_Pol ++</label>
+			<nail x="-255" y="-161"/>
+		</transition>
+	</template>
+	<template>
+		<name>SCN_EA</name>
+		<declaration>bool stop5 := 0; // variable permettant d'arrêter l'incrémentation du scénario SCN_EA;
+const int var_ea = 20; // La variable permettant de forcer un scénario dégrad</declaration>
+		<location id="id188" x="93" y="-187">
+			<name x="59" y="-229">COUNT_FOR_EA</name>
+			<committed/>
+		</location>
+		<location id="id189" x="-366" y="-187">
+			<name x="-408" y="-221">Init</name>
+		</location>
+		<init ref="id189"/>
+		<transition id="id190">
+			<source ref="id188"/>
+			<target ref="id189"/>
+			<label kind="guard" x="-280" y="-314">count_T_Pol &lt; var_ea</label>
+			<label kind="assignment" x="-238" y="-280">bit_EA := 0</label>
+			<nail x="-102" y="-280"/>
+			<nail x="-365" y="-280"/>
+		</transition>
+		<transition id="id191">
+			<source ref="id188"/>
+			<target ref="id189"/>
+			<label kind="guard" x="-280" y="-127">count_T_Pol == var_ea</label>
+			<label kind="assignment" x="-246" y="-93">bit_EA := 1,
+count_T_Pol := 0,
+stop5 := 1</label>
+			<nail x="-102" y="-102"/>
+			<nail x="-366" y="-102"/>
+		</transition>
+		<transition id="id192">
+			<source ref="id189"/>
+			<target ref="id188"/>
+			<label kind="guard" x="-212" y="-212">stop5 == 0</label>
+			<label kind="synchronisation" x="-221" y="-238">CALL_FOR_SCN?</label>
+			<label kind="assignment" x="-230" y="-178">count_T_Pol ++</label>
+			<nail x="-349" y="-187"/>
+		</transition>
+	</template>
+	<system>// List one or more processes to be composed into a system.
+system MASTER_BITBUS, MASTER_SDLC, SLAVE_SDLC, SLAVE_BITBUS, SCN_EA;//, SCN_UG_M; // SLAVE_BITBUS, SCN_DISTURB_FOR_UNLINK</system>
+	<queries>
+		<option key="--exploration" value="1"/>
+		<option key="--diagnostic" value="0"/>
+		<query>
+			<formula>== 1. Propriétés de sûreté structurelle (Safety)</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>A[] not deadlock
+</formula>
+			<comment>Absence de deadlock global : Absence de deadlock en mode nominal : Le système doit comporter seulement les automates de base : system MASTER_BITBUS, MASTER_SDLC, SLAVE_SDLC, SLAVE_BITBUS;</comment>
+			<option key="--exploration" value="0"/>
+			<option key="--diagnostic" value="0"/>
+			<result outcome="success" type="quality" timestamp="2026-02-15 17:24:06 +0100">
+				<option key="--exploration" value="0"/>
+				<option key="--diagnostic" value="0"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] ((MASTER_SDLC.slave_state_in_m == NRM and MASTER_BITBUS.irrec_err == 0)
+     imply not deadlock)
+</formula>
+			<comment>Absence de deadlock en mode nominal : Le système doit comporter seulement les automates de base : system MASTER_BITBUS, MASTER_SDLC, SLAVE_SDLC, SLAVE_BITBUS;</comment>
+			<option key="--exploration" value="0"/>
+			<option key="--diagnostic" value="0"/>
+			<result outcome="success" type="quality" timestamp="2026-02-15 17:24:20 +0100">
+				<option key="--exploration" value="0"/>
+				<option key="--diagnostic" value="0"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>=Intégrité des données – CHECKSUM</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>=RECEPTION ALPHANUMERIC VALID_CS_S FRAME S-&gt; M:</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>MASTER_BITBUS.RECEIVE_ALPHANUM_S and cs_frame_s == cs_ref_s --&gt; MASTER_BITBUS.PROCESS_BITBUS</formula>
+			<comment>Checksum correct ⇒ chemin valide (MASTER)</comment>
+			<option key="--exploration" value="1"/>
+			<option key="--diagnostic" value="2"/>
+			<result outcome="success" type="quality" timestamp="2026-02-12 15:06:21 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; MASTER_BITBUS.RECEIVE_ALPHANUM_S and cs_frame_s == cs_ref_s</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-12 16:19:05 +0100">
+				<option key="--exploration" value="1"/>
+				<option key="--diagnostic" value="0"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>(MASTER_BITBUS.RECEIVE_ALPHANUM_S and cs_frame_s != cs_ref_s) --&gt; MASTER_BITBUS.RESET_MASTER
+</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_CS_S</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:00:51 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (MASTER_BITBUS.RECEIVE_ALPHANUM_S and cs_frame_s != cs_ref_s)</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_CS_S</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:07:01 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>==RECEPTION ALPHANUMERIC VALID FRAME M-&gt; S: CS(OK/NOK)</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>(SLAVE_BITBUS.RECEIVE_DATA_FRAME and cs_frame_m == cs_ref_m and SLAVE_BITBUS.y == T_rep) --&gt; SLAVE_BITBUS.SEND_ALPHANUM_S
+</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:00:55 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (SLAVE_BITBUS.RECEIVE_DATA_FRAME and cs_frame_m == cs_ref_m and SLAVE_BITBUS.y == T_rep)</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer dans le système les 4 propriétés de base </comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:00:58 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>(SLAVE_BITBUS.RECEIVE_DATA_FRAME and cs_frame_m != cs_ref_m and SLAVE_BITBUS.y == T_rep) --&gt; SLAVE_BITBUS.ERROR_IN_S
+</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:01:00 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt;(SLAVE_BITBUS.RECEIVE_DATA_FRAME and cs_frame_m != cs_ref_m and SLAVE_BITBUS.y == T_rep)</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_CS_M</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:01:27 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>==RECEPTION ALPHANUMERIC INVALID FRAME M-&gt; S: CS(OK/NOK)
+</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>(SLAVE_BITBUS.RECEIVE_INVALID_FRM and cs_frame_m == cs_ref_m) --&gt; SLAVE_BITBUS.SEND_DATA_RESPONSE and invalid_data_m == 1</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:01:31 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (SLAVE_BITBUS.RECEIVE_INVALID_FRM and cs_frame_m == cs_ref_m)</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_UG_M</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:02:01 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>(SLAVE_BITBUS.RECEIVE_INVALID_FRM and cs_frame_m != cs_ref_m) --&gt; SLAVE_BITBUS.ERROR_IN_S</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:02:06 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (SLAVE_BITBUS.RECEIVE_INVALID_FRM and cs_frame_m != cs_ref_m)</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_UG_M et SCN_CS_M</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:04:46 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>=RECEPTION ALPHANUMERIC VALID FRAME S-&gt; M:</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>(MASTER_BITBUS.RECEIVE_VALID_FRM and cs_frame_s == cs_ref_s) --&gt; MASTER_BITBUS.PROCESS_BITBUS
+</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_UG_M et SCN_CS_M</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:24 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (MASTER_BITBUS.RECEIVE_DATA_FRAME and cs_frame_s == cs_ref_s)</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_UG_M et SCN_CS_M</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:21 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>=RECEPTION ALPHANUMERIC INVALID FRAME S-&gt; M:</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>(MASTER_BITBUS.RECEIVE_ALPHANUM_S and cs_frame_s != cs_ref_s) --&gt; MASTER_BITBUS.ERROR_IN_M</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_CS_S</comment>
+			<option key="--exploration" value="0"/>
+			<option key="--diagnostic" value="0"/>
+			<result outcome="success" type="quality" timestamp="2026-02-12 17:05:23 +0100">
+				<option key="--exploration" value="0"/>
+				<option key="--diagnostic" value="0"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (MASTER_BITBUS.RECEIVE_ALPHANUM_S and cs_frame_s != cs_ref_s)</formula>
+			<comment>Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_CS_S</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:37 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>== 2.Contraintes temporelles (timeouts &amp; invariants)</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula/>
+			<comment>= For MASTER</comment>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_PROCESS imply MASTER_BITBUS.x == T_Pol)</formula>
+			<comment>Respect du polling maître</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:45 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>(MASTER_BITBUS.WAIT_BITBUS_RESP and MASTER_BITBUS.x == MASTER_BITBUS.T_out_M) --&gt; (MASTER_BITBUS.PROCESS_BITBUS or MASTER_BITBUS.SDLC_CONNECTION_REQUEST)
+</formula>
+			<comment>Respect du temps d'attente T_out maître</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:48 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt;(MASTER_BITBUS.WAIT_BITBUS_RESP and MASTER_BITBUS.x == MASTER_BITBUS.T_out_M)</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:52 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>=For SLAVE</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>(SLAVE_BITBUS.y &gt;= SLAVE_BITBUS.T_out_S) --&gt; SLAVE_BITBUS.T_OUT_EXCEEDED_S</formula>
+			<comment>Respect tu T_out_S de l'esclave</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:56 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (SLAVE_BITBUS.y &gt;= SLAVE_BITBUS.T_out_S)</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:18:59 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (SLAVE_BITBUS.SEND_LINK_RESP imply SLAVE_BITBUS.y == T_rep)</formula>
+			<comment>Respect du temps de réponse esclave à l'emission de la trame de liage</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-09 16:49:50 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (SLAVE_BITBUS.SEND_UNLINK_RESP imply SLAVE_BITBUS.y == T_rep)</formula>
+			<comment>Respect du temps de réponse esclave à l'emission de la trame de déliage</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-09 16:12:20 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (SLAVE_BITBUS.SEND_DATA_RESPONSE imply SLAVE_BITBUS.y == T_rep)</formula>
+			<comment>Respect du temps de réponse esclave à l'emission de la trame de données alphanumériques</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-09 16:14:13 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>== 3. Vivacité bornée</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>MASTER_BITBUS.PROCESS_BITBUS --&gt; MASTER_BITBUS.SEND_PROCESS
+</formula>
+			<comment>Progression globale (pas de livelock) : Elle garantit la progression (liveness) du protocole</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:34 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>== 4. Bornes sur les ressources (crucial pour maitriser la mémoire -&gt; génération du code C)</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.attempt_bb &lt;= 2)</formula>
+			<comment>borner la tentatives de communication bitbus</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:37 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.attempt_link &lt;= 3)</formula>
+			<comment>borner la tentative de liage</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:39 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.attempt_unlink &lt;= 3)</formula>
+			<comment>borner la tentative de déliage </comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:41 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>== 5. Séquencement correct avec la couche SDLC</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_LINK_REQ imply MASTER_SDLC.slave_state_in_m == NRM)</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:45 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_ALPHANUM_M imply MASTER_SDLC.slave_state_in_m == NRM)</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:47 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_UNLINK_REQ imply MASTER_SDLC.slave_state_in_m == NRM)</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:49 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_ALPHANUM_M imply !SLAVE_NO_LINKED)</formula>
+			<comment>Le Maitre ne peut envoyer une trame alphanumériques que si l'esclave est déja lié</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:50 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_UNLINK_REQ imply !SLAVE_NO_LINKED)
+</formula>
+			<comment>Le déliage ne peut-pas être fait que si l'esclave est déjà lié (SLAVE_NO_LINKED = FLASE) : c'est à dire lié</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:20:52 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>== 6. Erreurs / Reset (harmonisé)</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>MASTER_BITBUS.ERROR_IN_M --&gt; MASTER_BITBUS.SDLC_CONNECTION_REQUEST</formula>
+			<comment>Si détection d'erreur au niveau du Maitre, le reset de la CMX (d'après les documentation) doit s'effectué</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:23:35 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>SLAVE_BITBUS.ERROR_IN_S --&gt; MASTER_BITBUS.SDLC_CONNECTION_REQUEST</formula>
+			<comment>Si détection d'erreur au niveau de l'esclave, le reset de la CMX (d'après les documentation) doit s'effectué</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:23:40 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.ERROR_IN_M imply MASTER_SDLC.slave_state_in_m == NRM)</formula>
+			<comment>Au moment de l'erreur detecté par le Maitre, le Maitre doit certainement être connecté matériellement (NRM)</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:23:44 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (SLAVE_BITBUS.ERROR_IN_S imply SLAVE_SDLC.slave_state == NRM)</formula>
+			<comment>Au moment de l'erreur detecté par l'esclave, celui-ci doit certainement être connecté matériellement (NRM)</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:23:46 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>== 7. Atteignabilité des états clés</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>E&lt;&gt; MASTER_BITBUS.PROC_SEND_LINK_REQ</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-01-29 10:41:11 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; MASTER_BITBUS.PROC_SEND_UNLINK_REQ</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-01-29 10:41:26 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; MASTER_BITBUS.PROC_SEND_ALPHANUM_M</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-01-29 10:40:56 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; SLAVE_BITBUS.SEND_LINK_RESP</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-01-28 22:02:00 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; SLAVE_BITBUS.SEND_UNLINK_RESP</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-01-28 22:02:03 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; SLAVE_BITBUS.SEND_ALPHANUM_S</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2026-01-28 22:02:06 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula/>
+			<comment>8. Propriétés de Cohérence État/Message (State-Message Consistency)</comment>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.frame_sent_m == data_response_m imply SLAVE_NO_LINKED == 0)</formula>
+			<comment>Justification: L'échange de données n'est possible qu'après liage.
+Pour FSM: Respecte la séquence du protocole.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:23:51 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_LINK_REQ imply SLAVE_NO_LINKED == 1)</formula>
+			<comment>Justification: On ne demande le liage que si l'esclave n'est pas déjà lié.
+Pour FSM: Cohérence entre état logique (SLAVE_NO_LINKED) et opération (SEND_LINK_REQ).</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:23:53 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (MASTER_BITBUS.SEND_UNLINK_REQ imply SLAVE_NO_LINKED == 0)</formula>
+			<comment>Justification: On ne peut délier que ce qui est déjà lié.
+Pour FSM: Prévient les opérations invalides.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:23:54 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment>9.  Propriétés de Récupération d'Erreur (Error Recovery)</comment>
+		</query>
+		<query>
+			<formula>MASTER_BITBUS.ERROR_IN_M --&gt; MASTER_BITBUS.PROCESS_BITBUS</formula>
+			<comment>Pas d'Erreur Bloquante | Pour vérifier cette propirétés : Il faut intégrer l'automate SCN_CS_M</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:26:54 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula/>
+			<comment>10 . EXCLUSION MUTUELLE</comment>
+		</query>
+		<query>
+			<formula>A[] not (MASTER_BITBUS.SEND_LINK_REQ and MASTER_BITBUS.SEND_UNLINK_REQ)</formula>
+			<comment> Pas de Liage et Déliage Simultanés.
+Justification: Le maître ne peut initier liage ET déliage en même temps.
+Pour FSM: Garantit qu'un seul type d'opération de contrôle est actif.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:26:58 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] not (MASTER_BITBUS.SEND_ALPHANUM_M and MASTER_BITBUS.SEND_LINK_REQ)</formula>
+			<comment>Pas d'Envoi de Données pendant Liage.
+Justification: Pendant le liage, pas d'envoi de données.
+Pour FSM: Les états SEND_ALPHANUM_M et SEND_LINK_REQ sont mutuellement exclusifs.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:00 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] not (MASTER_BITBUS.SEND_ALPHANUM_M and MASTER_BITBUS.SEND_UNLINK_REQ)</formula>
+			<comment>Pas d'Envoi de Données pendant Déliage.
+Justification: Pendant le déliage, pas d'envoi de données.
+Pour FSM: Évite les états incohérents.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:02 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] not ((SLAVE_BITBUS.SEND_LINK_RESP and SLAVE_BITBUS.SEND_UNLINK_RESP) or
+         (SLAVE_BITBUS.SEND_LINK_RESP and SLAVE_BITBUS.SEND_DATA_RESPONSE) or
+         (SLAVE_BITBUS.SEND_UNLINK_RESP and SLAVE_BITBUS.SEND_DATA_RESPONSE))</formula>
+			<comment>Un Seul Type de Réponse Esclave à la Fois.
+Justification: L'esclave ne peut envoyer qu'un seul type de réponse à la fois.
+Pour FSM: Les états de réponse sont mutuellement exclusifs.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:03 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] not (MASTER_BITBUS.RESET_MASTER and (MASTER_BITBUS.SEND_ALPHANUM_M or MASTER_BITBUS.SEND_LINK_REQ or MASTER_BITBUS.SEND_UNLINK_REQ))</formula>
+			<comment>Pas de Reset pendant Transmission
+Justification: Le reset ne peut intervenir pendant une transmission active.
+Pour FSM: Garantit l'atomicité des opérations d'envoi.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:05 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>11. TRAÇABILITÉ REQUEST-RESPONSE</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>MASTER_BITBUS.SEND_LINK_REQ --&gt; (MASTER_BITBUS.RECEIVE_LINK_RESP or MASTER_BITBUS.ERROR_IN_M or MASTER_BITBUS.SDLC_CONNECTION_REQUEST)</formula>
+			<comment>Justification: Chaque demande de liage aboutit (succès, erreur, ou reset).
+Pour FSM: Garantit qu'aucun état SEND n'est orphelin.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:11 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>MASTER_BITBUS.SEND_UNLINK_REQ --&gt; (MASTER_BITBUS.RECEIVE_UNLINK_RESP  or MASTER_BITBUS.SDLC_CONNECTION_REQUEST)</formula>
+			<comment>Ajout de l'automate SCN_EA</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:08 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>SLAVE_BITBUS.RECEIVE_LINK_REQ --&gt; (SLAVE_BITBUS.SEND_LINK_RESP or SLAVE_BITBUS.ERROR_IN_S)</formula>
+			<comment>Justification: L'esclave répond toujours à une demande de liage.
+Pour FSM: Complétude du comportement esclave.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:13 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula/>
+			<comment>12.VIVACITÉ COMPLÈTE</comment>
+		</query>
+		<query>
+			<formula>MASTER_BITBUS.WAIT_FOR_CONNECTION and SLAVE_SDLC.ACK --&gt; MASTER_BITBUS.PROCESS_BITBUS</formula>
+			<comment>Justification: État WAIT_FOR_CONNECTION n'est pas un puits.
+Pour FSM: Progression garantie après connexion SDLC.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:15 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>SLAVE_BITBUS.WAIT --&gt; (SLAVE_BITBUS.RECEIVE_LINK_REQ or 
+                        SLAVE_BITBUS.RECEIVE_UNLINK_REQ or 
+                        SLAVE_BITBUS.RECEIVE_DATA_FRAME or 
+                        SLAVE_BITBUS.T_OUT_EXCEEDED_S)</formula>
+			<comment>Justification: L'esclave en attente progresse toujours (réception ou timeout).
+Pour FSM: Évite les états d'attente infinis.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:17 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula/>
+			<comment/>
+		</query>
+		<query>
+			<formula>13. SYNCHRONISATION BIDIRECTIONNELLE</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>A[] (MASTER_SDLC.slave_state_in_m == NDM imply 
+     (MASTER_BITBUS.WAIT_FOR_CONNECTION or 
+      MASTER_BITBUS.RESET_MASTER or 
+      MASTER_BITBUS.SDLC_CONNECTION_REQUEST))</formula>
+			<comment>Justification: Si SDLC est déconnecté, BitBus ne peut être en transmission.
+Pour FSM: Cohérence inter-couches dans les deux sens.</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:20 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (SLAVE_SDLC.slave_state == NDM imply not (SLAVE_BITBUS.SEND_LINK_RESP or SLAVE_BITBUS.SEND_UNLINK_RESP or SLAVE_BITBUS.SEND_DATA_RESPONSE))</formula>
+			<comment>Justification: L'esclave ne transmet sur BitBus que si SDLC est connecté.
+Pour FSM: Cohérence esclave inter-couches</comment>
+			<result outcome="success" type="quality" timestamp="2026-02-10 14:27:23 +0100">
+				<option key="--diagnostic" value="2"/>
+			</result>
+		</query>
+	</queries>
+</nta>
