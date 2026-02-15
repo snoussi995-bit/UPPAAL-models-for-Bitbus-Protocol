@@ -66,7 +66,105 @@ int[0,100] cntr_m; // Master instruction.
 int[0,20] count_T_Pol = 1; // Indicator counter used to execute different scenario types based on how many times a message is sent by the Master (T_Pol).
 
 
-// Time constraints //
+// Time constraints // // Les channels utilisées dans le modèle
+
+ broadcast chan FRAME_DISC; // Message envoyé par le Maitre pour une 1ére demande de communication.  
+ chan FRAME_UA; // Acquittement envoyé par l'esclave suite à une demande réussite de connexion (DISC ou SNRM) de la part de l'esclave.
+ chan FRAME_SNRM; // la demande de connexion suite à un acquittement UA par l'esclave validant la reception de la DISC! 
+
+ broadcast chan FRAME_FRMR; //(doit être en boradcast pour la recevoir dans les deux automates défaut et Maitre; // Il s'agit d'un message de supervision montrant que l'emetteur de ce message a reçu une trame défaillante.
+
+ broadcast chan FRAME_LINK_REQUEST; // Il s'agit d'un message d'information de type BITBUS contenant la trame de demande de liage (M->S).
+ broadcast chan FRAME_LINK_RESPONSE; // Il s'agit d'un message d'information de type BITBUS contenant la trame de réponse de liage(S->M). 
+
+ broadcast chan FRAME_UNLINK_REQUEST; // Il s'agit d'un message d'information de type BITBUS contenant la trame de demande de déliage (M->S).
+ broadcast chan FRAME_UNLINK_RESPONSE; // Il s'agit d'un message d'information de type BITBUS contenant la trame de réponse de déliage (S->M). 
+
+
+ broadcast chan FRAME_DATA_RESPONSE_M; // Il s'agit d'un message d'information de type BITBUS contenant de 0 à 1 valeurs alphanumériques (M->S).
+ broadcast chan FRAME_DATA_RESPONSE_S; // Il s'agit d'un message d'information de type BITBUS contenant de 1 à 6 valeurs alphanumériques (S->M).
+
+ broadcast chan FRAME_DATA_REQUEST_M; // C'est la trame de vie émis par le Maitre pour Maintenir la communication indiqué dans les documentation par une trame : "demande de données".
+
+broadcast chan CONNECTION_REQUEST; // il s'agit du message emit par l'automate Master Soft à l'automate Master hard dans le but de établir la connexion SDLC.
+broadcast chan CONNECTION_RESPONSE; // C'est le message de réponse emit par l'automate Master hard au Master Soft dans le but de confirmer la connexion SDLC.
+
+broadcast chan T_OUT_S_EXCEEDED; // C'est le channel montrant un dépassement de l'attente du slave de la requête du Maitre.
+broadcast chan COMMUNICATION_ERROR; // Il s'agit du message remonté par le Maitre indiquant à l'unité SES que la communication avec l'esclave demeure impossible. 
+
+broadcast chan CALL_FOR_SCN; // Ce channel permmet la sychronisation avec les automates scénarios en lui indiquant l'incrémentation de la variable T_count_Pol.
+
+// les variables //
+const int T_Pol = 2; // La valeur T_Pol : le temps limite du cycle d'interrogation, c'est à dire la durée entre 2 émissions successives par le maître (typiquement T_Pol = 20 ms ou 2 ut sur le modèle), elle est globale pour qu'elle soit exploitée  par les automates SCN_XX.
+
+bool SLAVE_NO_LINKED = 1; // Cette variable globale (utilisée par MASTER_BITBUS et SCN_EA), nous permet d'indentifier s'il s'agit d'une permière trame bitbus émis par Maitre (SLAVE_NO_LINKED = TRUE : c'est bien une première trame, SLAVE_NO_LINKED = FALSE : Ce n'est pas la première trame)  
+bool cs_ref_s = 0; // c'est la valeur indiquant la valeur de checksum référence de l'esclave qui se positionne à la fin de la trame et qui doit être égale à celle calculée lors de la reception du message
+bool cs_frame_s = 0; // c'est la valeur indiquant la valeur de checksum de la trame du Maitre vers l'esclave qui se positionne à la fin de la trame et qui va être comparée par cs_ref_s
+
+
+bool cs_ref_m = 0; // c'est la valeur indiquant la valeur de checksum référence du Maitre qui se positionne à la fin de la trame et qui doit être égale à celle calculée lors de la reception du message
+bool cs_frame_m = 0; // c'est la valeur indiquant la valeur de checksum de la trame de l'esclave vers le Maitre qui se positionne à la fin de la trame et qui va être comparée par cs_ref_m
+
+bool bit_EA = 0; // C'est le bit qui permet l'identification du type de message SBART21 : (= 0 liage, = 1 déliage)
+bool byte_UG_m ; // C'est l'octet UG permettant d'identifier la validité de la trame (ug_byte = 0 (trame valide), = 1 (trame invalide).
+bool byte_UG_s ; // C'est l'octet UG permettant d'identifier la validité de la trame (ug_byte = 0 (trame valide), = 1 (trame invalide).
+const bool valid_ug = 0; // La valeur référence de ug pour le Maitre comme pour l'escalve
+const int EPC_interne = 0; // EPC_interne indique que l'epc attendu par l'esclave doit avoir la valeur 0. (gloable car elle sera utilisée par 'automate SCN_EPC_TYPE)
+const int TYPE_interne = 0; // TYPE_interne indique que le type attendu par l'esclave doit avoir la valeur 0. (gloable car elle sera utilisée par 'automate SCN_EPC_TYPE)
+// type des messages Bitbus S->M 
+const bool unlink_request = 0; // cette variable représente la demande de l'utilisateur pour un déliage.
+const bool unlink_response = 1; // C'est la valeur qui correspond à la trame de réponse au liage.
+const bool data_request_m = 2; // C'est la valeur qui correspond à la trame de vie émis par le Maitre.
+const bool link_request = 0; // C'est la valeur qui correspond à la trame de demande de liage.
+const bool link_response = 0; // C'est la valeur qui correspond à la trame de réponse au liage.
+const int data_response_m = 3; // C'est la valeur qui correspond à la trame d'émission de 0 à 1 alphanum.
+const int data_response_s = 3; // C'est la valeur qui correspond à la trame d'émission de 1 à 6 alphanums.
+const int frmr = 4;// La valeur qui correspond à la trame FRMR reçue de l'esclave.
+
+const int empty = 5; // C'est la valeur qui désigne une absence de communication.
+
+bool invalid_data_s = 0; // Cette variable montre la validité de la trame alphanum reçue par le Maitre, basée sur l'octet UG (if byte_UG = 0(valide),  invalid_data_s =0 else if byte_UG = 1(invalide), invalid_data_s = 1). 
+bool invalid_data_m = 0; // Cette variable montre la validité de la trame alphanum reçue par l'escalve, basée sur l'octet UG (if byte_UG = 0(valide),  invalid_data_s =0 else if byte_UG = 1(invalide), invalid_data_m = 1). 
+
+
+int[0,100] cntr_s; // l'instruction de l'esclave : cntr est le byte du contôle request qui décide si la trame est RR, RNR ou I.
+int[0,100] cntr_m; // l'instruction du Maitre.
+
+int[0,20] count_T_Pol = 1; //C'est un compteur indicateur qui permet d'éxecuter les différents types de scénarios en se basant sur le nombre de fois un message est émis par le Maitre (T_Pol).
+
+
+ 2 unit time => 20 ms , 10s => 1000s  
+
+const int T_rep = 0; // La valeur T_rep : : le temps de réponse de l'esclave, c'est-à-dire le temps que l'esclave attend avant d'envoyer une réponse après une réception de trame.
+const int T_out_bb = 10; // Le temps d'attente du Master suite à une émission d'une trame Bitbus (hors liage).
+bool error_frame = 0; // Cette valeur montre que le système a subit une défaillance au niveau des trames.
+const int T_out_sdlc_m = 1000 ; //Délai autorisé pour recevoir un accusé de réception après l’envoi d’un DISC/demande de liage/déliage
+const int SNRM = 93; // l'octet (en hex) sera identifié pour une demande de connexion matérielle
+const int NRM = 1; // L'etat de l'esclave :  "connecté"
+const int NDM = 0; // L'etat de l'esclave :  "Non connecté"
+const int DISC = 53; // Pour établir une connexion, le maitre doit envoyer DISC pour vérifier l'existance d'un esclave sur le bus 
+const int UA = 73; // UA est la confirmation de reception envoyé par l'esclave suite à une demande de connection de la part du Maitre
+const int FRMR  = 97; // Si le message contient l'octet FRMR, c'est que le message n-1 du partenaire est déffectueux.
+
+int [0,3] epc = 0; // c'est la variable échangés entre l'automate SCN_EPC_TYPE et l'automate Maitre qui définit l'adresse epc .
+int [0,3] type = 0; // c'est la variable échangés entre SCN_EPC_TYPE et l'automate Maitre qui définit le type du slave.
+
+bool ug_m = 0; // C'est la variable échangés entre l'automate  SCN_UG_m et MASTER_BITBUS
+bool ug_s = 0; // C'est la variable échangés entre l'automate  SCN_UG_s et SLAVE_BITBUS
+
+
+
+ 
+int [0,6] frame_received_m; // la valeur contenant le message reçu par le Maitre
+bool first_frame_sdlc = 1; // Si cette variable est égale à 1, c'est que le système est tout au début de la phase de sychnronisation entre les automates MASTER_SDLC et SLAVE_SDLC.
+
+//////////////////// Automate de défauts////////////////////
+
+broadcast chan COMMUNICATION_FAILURE; // C'est le message émis par le l'automate MASTER_BITBUS montrant que le Maitre n'arrive pas à lier/délier son esclave (cas de scénario de perturbation de ligne).
+broadcast chan NO_ANSWER_BB; // C'est le message émis à l'automate "LINE_FAULT" pour informer d'une absence de réponse suite à une émission de trame alphanumériques.
+
+
+
 
 const int T_rep = 0; // The value T_rep: the slave response time, i.e., the time the slave waits before sending a response after frame reception.
 const int T_out_bb = 10; // Master waiting time after sending a Bitbus frame (excluding linking).
@@ -2007,3 +2105,4 @@ Pour FSM: Cohérence esclave inter-couches</comment>
 		</query>
 	</queries>
 </nta>
+
